@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* ─── Custom Design Tokens ────────────────────────────────── */
+:root {
+  /* Modern Clean Light Theme */
+  --bg-main: #f8fafc;
+  /* Slate 50 */
+  --bg-surface: #ffffff;
+
+  /* Primary Color - Indigo */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-light: #e0e7ff;
+  --primary-glow: rgba(79, 70, 229, 0.15);
+
+  /* Text Colors */
+  --text-main: #0f172a;
+  /* Slate 900 */
+  --text-secondary: #475569;
+  /* Slate 600 */
+  --text-muted: #94a3b8;
+  /* Slate 400 */
+
+  /* Borders */
+  --border-light: #e2e8f0;
+  /* Slate 200 */
+  --border-medium: #cbd5e1;
+  /* Slate 300 */
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+/* ─── Base Reset ────────────────────────────────────────── */
+@layer base {
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    @apply font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--text-main);
+    @apply tracking-tight font-semibold;
+  }
+}
+
+/* ─── Components ─────────────────────────────────────────── */
+@layer components {
+
+  /* Layout */
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+
+  .section-header {
+    @apply mb-6;
+  }
+
+  /* Cards */
+  .card-modern {
+    background-color: var(--bg-surface);
+    border-color: var(--border-light);
+    border-radius: var(--radius-xl);
+    @apply border shadow-sm transition-all duration-200;
+  }
+
+  .card-modern:hover {
+    border-color: var(--border-medium);
+    @apply shadow-md -translate-y-0.5;
+  }
+
+  /* Buttons */
+  .btn-modern {
+    border-radius: var(--radius-lg);
+    @apply inline-flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--primary);
+    @apply text-white shadow-sm hover:shadow-md;
+  }
+
+  .btn-primary:hover {
+    background-color: var(--primary-hover);
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: var(--text-secondary);
+    border-color: var(--border-medium);
+    @apply border hover:bg-slate-50;
+  }
+
+  .btn-secondary:hover {
+    color: var(--text-main);
+  }
+
+  .btn-ghost {
+    color: var(--text-secondary);
+    @apply hover:bg-slate-100;
+  }
+
+  .btn-ghost:hover {
+    color: var(--text-main);
+  }
+
+  /* Inputs */
+  .input-modern {
+    border-radius: var(--radius-lg);
+    border-color: var(--border-medium);
+    color: var(--text-main);
+    @apply w-full px-4 py-2.5 text-sm border bg-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-150;
+  }
+
+  .input-modern::placeholder {
+    color: var(--text-muted);
+  }
+
+  .input-modern:focus {
+    --tw-ring-color: var(--primary);
+  }
+
+  .label-modern {
+    color: var(--text-secondary);
+    @apply block text-sm font-medium mb-1.5;
+  }
+}
+
+/* ─── Utilities ──────────────────────────────────────────── */
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary), #8b5cf6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.glass-panel {
+  @apply bg-white/70 backdrop-blur-md border border-white/50;
+}
