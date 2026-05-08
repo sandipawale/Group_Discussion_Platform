@@ -1,93 +1,140 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, X, MessageSquare, Send } from 'lucide-react';
+import { Star, X, MessageSquare, CheckCircle2 } from 'lucide-react';
 import API from '../api/axios';
 
 export default function FeedbackModal({ isOpen, onClose, sessionId }) {
     const [rating, setRating] = useState(0);
+    const [hover, setHover] = useState(0);
     const [comments, setComments] = useState('');
     const [loading, setLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const timerRef = useRef(null);
+
+    useEffect(() => {
+        return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (rating === 0) return;
-
         setLoading(true);
         try {
-            await API.post('/feedback', {
-                sessionId,
-                rating,
-                comments
-            });
+            await API.post('/feedback', { sessionId, rating, comments });
             setSubmitted(true);
-            setTimeout(() => {
-                onClose();
-            }, 1500);
+            timerRef.current = setTimeout(() => onClose(), 1800);
         } catch (err) {
             console.error('Feedback failed:', err);
-            // Optionally show error, but we usually just close
             onClose();
         } finally {
             setLoading(false);
         }
     };
 
+    const ratingLabels = ['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent'];
+
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                    style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}>
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+                        initial={{ opacity: 0, scale: 0.94, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.94, y: 10 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full max-w-md rounded-2xl overflow-hidden"
+                        style={{ background: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)' }}
                     >
                         {submitted ? (
-                            <div className="p-10 text-center">
-                                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Send className="w-8 h-8" />
-                                </div>
-                                <h3 className="text-xl font-bold text-gray-900 mb-2">Thank You!</h3>
-                                <p className="text-gray-500">Your feedback helps us improve.</p>
+                            <div className="p-12 text-center">
+                                <motion.div
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                                    className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5"
+                                    style={{ background: 'var(--success-light)' }}
+                                >
+                                    <CheckCircle2 className="w-8 h-8" style={{ color: 'var(--success)' }} />
+                                </motion.div>
+                                <h3 className="text-xl font-extrabold mb-2" style={{ color: 'var(--text-main)' }}>
+                                    Thank You!
+                                </h3>
+                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                                    Your feedback helps us improve.
+                                </p>
                             </div>
                         ) : (
-                            <div className="p-6">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-xl font-bold text-gray-900">Session Feedback</h3>
-                                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 text-gray-400">
-                                        <X className="w-5 h-5" />
+                            <>
+                                {/* Header */}
+                                <div className="flex items-center justify-between px-6 py-4 border-b"
+                                    style={{ borderColor: 'var(--border)' }}>
+                                    <div>
+                                        <h3 className="font-bold text-base" style={{ color: 'var(--text-main)' }}>
+                                            Session Feedback
+                                        </h3>
+                                        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                            Rate your experience in this GD session
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={onClose}
+                                        className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                                        style={{ color: 'var(--text-muted)' }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-subtle)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <X className="w-4 h-4" />
                                     </button>
                                 </div>
 
-                                <form onSubmit={handleSubmit} className="space-y-6">
+                                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                                    {/* Star Rating */}
                                     <div className="text-center">
-                                        <label className="block text-sm font-medium text-gray-500 mb-3">
+                                        <p className="text-sm font-semibold mb-4" style={{ color: 'var(--text-secondary)' }}>
                                             How would you rate this session?
-                                        </label>
-                                        <div className="flex items-center justify-center gap-2">
+                                        </p>
+                                        <div className="flex items-center justify-center gap-2 mb-2">
                                             {[1, 2, 3, 4, 5].map((star) => (
                                                 <button
                                                     key={star}
                                                     type="button"
                                                     onClick={() => setRating(star)}
-                                                    className={`p-1 transition-all ${rating >= star ? 'text-amber-400 scale-110' : 'text-gray-300 hover:text-amber-200'}`}
+                                                    onMouseEnter={() => setHover(star)}
+                                                    onMouseLeave={() => setHover(0)}
+                                                    className="transition-transform duration-100"
+                                                    style={{
+                                                        transform: (hover || rating) >= star ? 'scale(1.15)' : 'scale(1)',
+                                                        color: (hover || rating) >= star ? '#f59e0b' : 'var(--border)',
+                                                    }}
                                                 >
-                                                    <Star className="w-8 h-8 fill-current" />
+                                                    <Star className="w-9 h-9 fill-current" />
                                                 </button>
                                             ))}
                                         </div>
+                                        {(hover || rating) > 0 && (
+                                            <motion.p
+                                                key={hover || rating}
+                                                initial={{ opacity: 0, y: -4 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className="text-xs font-bold"
+                                                style={{ color: '#f59e0b' }}
+                                            >
+                                                {ratingLabels[hover || rating]}
+                                            </motion.p>
+                                        )}
                                     </div>
 
+                                    {/* Comments */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Additional Comments (Optional)
-                                        </label>
+                                        <label className="label">Additional Comments <span style={{ color: 'var(--text-muted)' }}>(Optional)</span></label>
                                         <div className="relative">
-                                            <MessageSquare className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                                            <MessageSquare className="absolute left-3.5 top-3.5 w-4 h-4 pointer-events-none"
+                                                style={{ color: 'var(--text-muted)' }} />
                                             <textarea
-                                                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent min-h-[100px] resize-none"
-                                                placeholder="Share your thoughts..."
+                                                className="input"
+                                                style={{ paddingLeft: '2.5rem', minHeight: '100px', resize: 'none' }}
+                                                placeholder="Share your thoughts about the session…"
                                                 value={comments}
                                                 onChange={(e) => setComments(e.target.value)}
                                             />
@@ -97,15 +144,20 @@ export default function FeedbackModal({ isOpen, onClose, sessionId }) {
                                     <button
                                         type="submit"
                                         disabled={loading || rating === 0}
-                                        className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${loading || rating === 0
-                                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                            : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200'
-                                            }`}
+                                        className="btn-primary w-full py-3 text-sm"
+                                        style={loading || rating === 0 ? {
+                                            background: 'var(--bg-subtle)',
+                                            color: 'var(--text-muted)',
+                                            boxShadow: 'none',
+                                            cursor: rating === 0 ? 'default' : 'wait',
+                                        } : {}}
                                     >
-                                        {loading ? 'Submitting...' : 'Submit Feedback'}
+                                        {loading ? (
+                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        ) : 'Submit Feedback'}
                                     </button>
                                 </form>
-                            </div>
+                            </>
                         )}
                     </motion.div>
                 </div>

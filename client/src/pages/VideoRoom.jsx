@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, ArrowLeft, Users } from 'lucide-react';
 import {
@@ -8,7 +8,7 @@ import {
 } from '@livekit/components-react';
 import '@livekit/components-styles';
 import API from '../api/axios';
-import FeedbackModal from '../components/FeedbackModal'; // Import Modal
+import FeedbackModal from '../components/FeedbackModal';
 
 export default function VideoRoom() {
     const { roomId } = useParams();
@@ -16,16 +16,22 @@ export default function VideoRoom() {
     const [roomData, setRoomData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [showFeedback, setShowFeedback] = useState(false); // State for feedback modal
+    const [showFeedback, setShowFeedback] = useState(false);
+    const sessionIdRef = useRef(null);
+    const mediaRecorderRef = useRef(null);
+    const streamRef = useRef(null);
+    const audioChunksRef = useRef([]);
 
     useEffect(() => {
         fetchRoomToken();
+        return () => cleanupRecording();
     }, [roomId]);
 
     const fetchRoomToken = async () => {
         try {
             const res = await API.get(`/rooms/${roomId}/token`);
             setRoomData(res.data);
+            sessionIdRef.current = res.data.roomId;
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to load room');
         } finally {
@@ -33,7 +39,87 @@ export default function VideoRoom() {
         }
     };
 
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true },
+                video: false,
+            });
+            streamRef.current = stream;
+            audioChunksRef.current = [];
+
+            const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4']
+                .find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+            recorder.start(1000);
+            mediaRecorderRef.current = recorder;
+            console.log('🎙️ Recording started:', mimeType || 'default');
+        } catch (err) {
+            console.warn('Mic recording failed:', err.message);
+        }
+    };
+
+    const cleanupRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try { mediaRecorderRef.current.stop(); } catch (_) {}
+        }
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(t => t.stop());
+            streamRef.current = null;
+        }
+        mediaRecorderRef.current = null;
+    };
+
+    const uploadAudioForTranscription = (sid) => {
+        const recorder = mediaRecorderRef.current;
+        if (!recorder || !sid) return;
+
+        recorder.onstop = async () => {
+            const chunks = audioChunksRef.current;
+            if (!chunks.length) return;
+
+            const mimeType = recorder.mimeType || 'audio/webm';
+            const blob = new Blob(chunks, { type: mimeType });
+            console.log(`📤 Uploading audio: ${(blob.size / 1024).toFixed(1)}KB`);
+
+            try {
+                const arrayBuffer = await blob.arrayBuffer();
+                await API.post(`/rooms/${sid}/transcribe`, arrayBuffer, {
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    timeout: 60000,
+                });
+                console.log('✅ Audio uploaded for transcription');
+            } catch (err) {
+                console.warn('Audio upload failed:', err.message);
+            }
+
+            // Stop mic tracks after upload
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+            }
+        };
+
+        if (recorder.state !== 'inactive') {
+            try { recorder.stop(); } catch (_) {}
+        } else {
+            recorder.onstop();
+        }
+    };
+
+    const handleConnected = () => {
+        startRecording();
+    };
+
     const handleDisconnect = () => {
+        const sid = sessionIdRef.current;
+        // Upload audio in background — don't block the UI
+        uploadAudioForTranscription(sid);
+        if (sid) API.post(`/rooms/${sid}/leave`).catch(() => {});
         setShowFeedback(true);
     };
 
@@ -102,6 +188,7 @@ export default function VideoRoom() {
                         connect={true}
                         video={true}
                         audio={true}
+                        onConnected={handleConnected}
                         onDisconnected={handleDisconnect}
                         data-lk-theme="default"
                         style={{ height: '100%' }}
@@ -123,7 +210,7 @@ export default function VideoRoom() {
             <FeedbackModal
                 isOpen={showFeedback}
                 onClose={handleFeedbackClose}
-                sessionId={roomData?.roomId} // Pass the actual SessionInstance ID
+                sessionId={roomData?.roomId}
             />
         </div>
     );

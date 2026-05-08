@@ -1,14 +1,5 @@
 const Slot = require('../models/Slot');
 const SessionInstance = require('../models/SessionInstance');
-const Room = require('../models/Room');
-const { v4: uuidv4 } = require('crypto');
-
-// Helper to generate a unique room name
-const generateRoomName = (topic) => {
-    const slug = topic.toLowerCase().replace(/\s+/g, '-').slice(0, 20);
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    return `room-${slug}-${id}`;
-};
 
 // ─── Update Slot (Admin) ───────────────────────────────────
 exports.updateSlot = async (req, res) => {
@@ -67,49 +58,20 @@ exports.createSlot = async (req, res) => {
 exports.getTodaySlots = async (req, res) => {
     try {
         const now = new Date();
-        const todayStart = new Date(now);
-        todayStart.setHours(0, 0, 0, 0);
 
+        // Only show slots that haven't ended yet and are active
         const slots = await Slot.find({
-            endTime: { $gte: todayStart },
+            endTime: { $gt: now },
             isActive: true,
+            status: { $in: ['SCHEDULED', 'LIVE', 'RESCHEDULED'] },
         }).sort({ startTime: 1 });
 
-        // Add computed fields and rollover logic
         const enriched = slots.map((slot) => {
-            let displayStartTime = new Date(slot.startTime);
-            let displayEndTime = new Date(slot.endTime);
-            let isRolledOver = false;
-
-            // Only roll over the display if the session has already STARTED.
-            // Rule:
-            // 1. Unregistered users roll over immediately at startTime.
-            // 2. Registered users who are still WAITING (rescheduled) roll over too.
-            // 3. Registered users who are CONFIRMED stay on today to see the Join button.
-            if (now >= displayStartTime) {
-                const userEntry = slot.waitingQueue.find(
-                    q => q.userId.toString() === req.user._id.toString()
-                );
-
-                const isConfirmedInLive = userEntry && userEntry.status === 'CONFIRMED';
-
-                if (!isConfirmedInLive) {
-                    displayStartTime.setDate(displayStartTime.getDate() + 1);
-                    displayEndTime.setDate(displayEndTime.getDate() + 1);
-                    isRolledOver = true;
-                }
-            }
-
             const total = slot.waitingQueue.length;
             const waitingCount = slot.waitingQueue.filter((q) => q.status === 'WAITING').length;
 
             return {
                 ...slot.toObject(),
-                topic: isRolledOver ? "Fresh Placement GD Topic" : slot.topic,
-                description: isRolledOver ? "A unique topic will be generated when this session starts." : slot.description,
-                startTime: displayStartTime,
-                endTime: displayEndTime,
-                isRolledOver,
                 totalRegistered: total,
                 waitingCount,
                 isFilling: total >= 2 && waitingCount > 0,

@@ -1,20 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Video, ShieldAlert, BarChart3, Activity, Search } from 'lucide-react';
+import { Users, Video, ShieldAlert, Activity, TrendingUp, BarChart3, AlertTriangle, Bell } from 'lucide-react';
+import { io } from 'socket.io-client';
 import API from '../api/axios';
 import Sidebar from '../components/Sidebar';
 import Navbar from '../components/Navbar';
 import SlotManager from '../components/admin/SlotManager';
 
+function StatCard({ label, value, icon: Icon, color, bg, delay = 0 }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay, duration: 0.3 }}
+            className="card p-6"
+        >
+            <div className="flex items-start justify-between mb-4">
+                <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{ background: bg }}
+                >
+                    <Icon className="w-5 h-5" style={{ color }} />
+                </div>
+                <TrendingUp className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+            </div>
+            <p className="text-2xl font-extrabold mb-0.5" style={{ color: 'var(--text-main)' }}>{value}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{label}</p>
+        </motion.div>
+    );
+}
+
 export default function AdminDashboard() {
     const [analytics, setAnalytics] = useState(null);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        fetchAnalytics();
-    }, []);
+    const [liveAlerts, setLiveAlerts] = useState([]);
+    const fetchRef = useRef(null);
 
     const fetchAnalytics = async () => {
+        setLoading(true);
         try {
             const res = await API.get('/admin/analytics');
             setAnalytics(res.data);
@@ -24,147 +47,197 @@ export default function AdminDashboard() {
             setLoading(false);
         }
     };
+    fetchRef.current = fetchAnalytics;
 
-    const statsCards = [
-        { label: 'Active Students', value: analytics?.stats?.totalActiveUsers || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-        { label: 'Live Sessions', value: analytics?.stats?.activeRooms || 0, icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-        { label: "Today's Rooms", value: analytics?.stats?.totalRoomsToday || 0, icon: Video, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-        { label: 'Flagged Users', value: analytics?.flaggedUsers?.length || 0, icon: ShieldAlert, color: 'text-rose-600', bg: 'bg-rose-50' },
+    useEffect(() => { fetchAnalytics(); }, []);
+
+    // Real-time socket for security events
+    useEffect(() => {
+        const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+        const socket = io(serverUrl, { withCredentials: true, transports: ['websocket', 'polling'] });
+        socket.emit('join-admin');
+
+        socket.on('threat-alert', (data) => {
+            setLiveAlerts(prev => [{ ...data, type: 'threat', id: Date.now() }, ...prev.slice(0, 4)]);
+            // Refresh analytics so flagged users table updates
+            setTimeout(() => fetchRef.current?.(), 1500);
+        });
+
+        socket.on('risk-words-update', (data) => {
+            // Refresh analytics so risk words chart updates
+            setTimeout(() => fetchRef.current?.(), 1500);
+        });
+
+        return () => socket.disconnect();
+    }, []);
+
+    const stats = [
+        { label: 'Active Students', value: analytics?.stats?.totalActiveUsers ?? 0, icon: Users, color: '#6366f1', bg: '#eef2ff', delay: 0 },
+        { label: 'Live Sessions', value: analytics?.stats?.activeRooms ?? 0, icon: Activity, color: '#10b981', bg: '#ecfdf5', delay: 0.05 },
+        { label: "Today's Rooms", value: analytics?.stats?.totalRoomsToday ?? 0, icon: Video, color: '#8b5cf6', bg: '#f5f3ff', delay: 0.1 },
+        { label: 'Flagged Users', value: analytics?.flaggedUsers?.length ?? 0, icon: ShieldAlert, color: '#ef4444', bg: '#fef2f2', delay: 0.15 },
     ];
 
-    return (
-        <div className="flex h-screen bg-[var(--bg-main)] overflow-hidden font-sans">
-            <Sidebar />
-            <div className="flex-1 flex flex-col min-w-0">
-                <Navbar />
+    const maxCount = Math.max(...(analytics?.flaggedWords?.map(w => w.count) ?? [1]), 1);
 
-                <main className="p-8 lg:p-10 overflow-y-auto">
+    return (
+        <div className="page-shell">
+            <Sidebar />
+            <div className="page-content">
+                <Navbar />
+                <main className="page-main space-y-8">
+
+                    {/* Live threat alerts (real-time toast strip) */}
+                    {liveAlerts.length > 0 && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="space-y-2"
+                        >
+                            {liveAlerts.map(alert => (
+                                <div key={alert.id} className="flex items-start gap-3 px-4 py-3 rounded-xl"
+                                    style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
+                                    <Bell className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#dc2626' }} />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold" style={{ color: '#991b1b' }}>
+                                            Threat Alert — {alert.topic || 'Session'}
+                                        </p>
+                                        <p className="text-xs mt-0.5" style={{ color: '#b91c1c' }}>{alert.reason}</p>
+                                    </div>
+                                    <button onClick={() => setLiveAlerts(p => p.filter(a => a.id !== alert.id))}
+                                        className="text-xs font-bold px-2 py-1 rounded"
+                                        style={{ color: '#dc2626', background: '#fee2e2' }}>✕</button>
+                                </div>
+                            ))}
+                        </motion.div>
+                    )}
+
                     {loading && !analytics ? (
-                        <div className="flex-1 flex items-center justify-center p-20">
-                            <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
+                        <div className="flex items-center justify-center py-32">
+                            <div className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
                         </div>
                     ) : (
-                        <div className="space-y-8">
-                            {/* Header */}
-                            <div className="flex items-end justify-between section-header">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-[var(--text-main)]">
-                                        Admin Dashboard
-                                    </h2>
-                                    <p className="text-sm text-[var(--text-secondary)] mt-1 font-medium">Platform overview and management.</p>
-                                </div>
+                        <>
+                            {/* Stats */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                {stats.map((s) => <StatCard key={s.label} {...s} />)}
                             </div>
 
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                {statsCards.map((card, idx) => (
-                                    <motion.div
-                                        key={idx}
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: idx * 0.05 }}
-                                        className="card-modern p-6 bg-white"
-                                    >
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className={`p-3 rounded-xl ${card.bg} ${card.color}`}>
-                                                <card.icon className="w-5 h-5" />
-                                            </div>
-                                        </div>
-                                        <h3 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{card.label}</h3>
-                                        <p className="text-2xl font-bold text-[var(--text-main)] mt-1">{card.value}</p>
-                                    </motion.div>
-                                ))}
-                            </div>
+                            {/* Slot Manager */}
+                            <SlotManager />
 
-                            {/* Slot Management Section */}
-                            <section>
-                                <SlotManager />
-                            </section>
-
+                            {/* Lower section */}
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                {/* Flagged Students */}
-                                <div className="lg:col-span-2 space-y-6">
-                                    <div className="flex items-center gap-2">
-                                        <ShieldAlert className="w-5 h-5 text-rose-500" />
-                                        <h3 className="text-lg font-bold text-[var(--text-main)]">Security Alerts</h3>
-                                    </div>
 
-                                    <div className="card-modern overflow-hidden bg-white">
-                                        <table className="w-full text-left">
+                                {/* Security Alerts */}
+                                <div className="lg:col-span-2 card overflow-hidden">
+                                    <div className="flex items-center gap-3 px-6 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                                            style={{ background: 'var(--danger-light)' }}>
+                                            <ShieldAlert className="w-4 h-4" style={{ color: 'var(--danger)' }} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Security Alerts</h3>
+                                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Flagged students requiring review</p>
+                                        </div>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-sm">
                                             <thead>
-                                                <tr className="bg-[var(--bg-main)] border-b border-[var(--border-light)]">
-                                                    <th className="px-6 py-4 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Student</th>
-                                                    <th className="px-6 py-4 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Reason</th>
-                                                    <th className="px-6 py-4 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Reputation</th>
-                                                    <th className="px-6 py-4 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Action</th>
+                                                <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)' }}>
+                                                    <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Student</th>
+                                                    <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Reason</th>
+                                                    <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Score</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-[var(--border-light)]">
-                                                {analytics?.flaggedUsers?.length === 0 ? (
+                                            <tbody>
+                                                {!analytics?.flaggedUsers?.length ? (
                                                     <tr>
-                                                        <td colSpan="4" className="px-6 py-8 text-center text-[var(--text-muted)] text-sm font-medium">No active security threats detected.</td>
+                                                        <td colSpan="3" className="px-6 py-10 text-center text-sm font-medium"
+                                                            style={{ color: 'var(--text-muted)' }}>
+                                                            No active security threats detected.
+                                                        </td>
                                                     </tr>
-                                                ) : (
-                                                    analytics?.flaggedUsers?.map((user, idx) => (
-                                                        <tr key={idx} className="hover:bg-[var(--bg-main)]/50 transition-colors">
-                                                            <td className="px-6 py-4">
-                                                                <div className="font-bold text-[var(--text-main)]">{user.name || 'Anonymous'}</div>
-                                                                <div className="text-xs text-[var(--text-muted)] font-medium">{user.email}</div>
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
-                                                                    {user.flagReason || 'Policy Violation'}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className="w-16 h-1.5 bg-[var(--bg-main)] rounded-full overflow-hidden">
-                                                                        <div className="h-full bg-rose-500 rounded-full" style={{ width: `${user.reputationScore}%` }} />
-                                                                    </div>
-                                                                    <span className="text-xs font-bold text-[var(--text-main)]">{user.reputationScore}</span>
+                                                ) : analytics.flaggedUsers.map((user, i) => (
+                                                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}
+                                                        className="transition-colors"
+                                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-subtle)'}
+                                                        onMouseLeave={e => e.currentTarget.style.background = ''}>
+                                                        <td className="px-6 py-4">
+                                                            <p className="font-semibold text-sm" style={{ color: 'var(--text-main)' }}>{user.name || 'Unknown'}</p>
+                                                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{user.email}</p>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className="text-xs font-semibold px-2.5 py-1 rounded-lg"
+                                                                style={{ background: 'var(--danger-light)', color: 'var(--danger)', border: '1px solid #fecaca' }}>
+                                                                {user.flagReason || 'Policy Violation'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                                                                    <div className="h-full rounded-full"
+                                                                        style={{ width: `${user.reputationScore}%`, background: 'var(--danger)' }} />
                                                                 </div>
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <button className="text-xs font-bold text-[var(--primary)] hover:underline">Review</button>
-                                                            </td>
-                                                        </tr>
-                                                    ))
-                                                )}
+                                                                <span className="text-xs font-bold" style={{ color: 'var(--text-secondary)' }}>
+                                                                    {user.reputationScore}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
                                             </tbody>
                                         </table>
                                     </div>
                                 </div>
 
-                                {/* Top Flagged Words */}
-                                <div className="space-y-6">
-                                    <div className="flex items-center gap-2">
-                                        <BarChart3 className="w-5 h-5 text-[var(--primary)]" />
-                                        <h3 className="text-lg font-bold text-[var(--text-main)]">Risk Words</h3>
+                                {/* Risk Words */}
+                                <div className="card p-6 space-y-5">
+                                    <div className="flex items-center gap-3 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                                            style={{ background: 'var(--primary-light)' }}>
+                                            <BarChart3 className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Risk Words</h3>
+                                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Top flagged terms</p>
+                                        </div>
                                     </div>
 
-                                    <div className="card-modern p-6 bg-white space-y-4">
-                                        {analytics?.flaggedWords?.map((item, idx) => (
-                                            <div key={idx} className="space-y-1">
-                                                <div className="flex justify-between items-end">
-                                                    <span className="text-sm font-bold text-[var(--text-main)] italic">"{item.word}"</span>
-                                                    <span className="text-xs font-bold text-[var(--primary)] bg-indigo-50 px-1.5 py-0.5 rounded">{item.count}</span>
+                                    {analytics?.flaggedWords?.length ? (
+                                        <div className="space-y-3">
+                                            {analytics.flaggedWords.map((item, i) => (
+                                                <div key={i} className="space-y-1.5">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-sm font-semibold italic"
+                                                            style={{ color: 'var(--text-main)' }}>"{item.word}"</span>
+                                                        <span className="text-[11px] font-bold px-2 py-0.5 rounded"
+                                                            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                                                            ×{item.count}
+                                                        </span>
+                                                    </div>
+                                                    <div className="h-1.5 rounded-full overflow-hidden"
+                                                        style={{ background: 'var(--border)' }}>
+                                                        <motion.div
+                                                            initial={{ width: 0 }}
+                                                            animate={{ width: `${(item.count / maxCount) * 100}%` }}
+                                                            transition={{ delay: i * 0.05 }}
+                                                            className="h-full rounded-full"
+                                                            style={{ background: 'var(--primary)' }}
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <div className="h-1.5 bg-[var(--bg-main)] rounded-full overflow-hidden">
-                                                    <motion.div
-                                                        initial={{ width: 0 }}
-                                                        animate={{ width: `${(item.count / 15) * 100}%` }}
-                                                        className="h-full bg-[var(--primary)] text-opacity-80"
-                                                    />
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {!analytics?.flaggedWords?.length && (
-                                            <p className="text-sm text-[var(--text-muted)] text-center py-4 font-medium">No data available</p>
-                                        )}
-                                    </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="py-8 text-center">
+                                            <AlertTriangle className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--text-muted)' }} />
+                                            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>No risk data yet</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        </div>
+                        </>
                     )}
                 </main>
             </div>

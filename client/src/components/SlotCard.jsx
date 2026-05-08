@@ -1,127 +1,210 @@
 import { motion } from 'framer-motion';
-import { Clock, Users, Zap, CheckCircle2, Video, AlertCircle, CalendarDays } from 'lucide-react';
+import { Clock, Users, Zap, CheckCircle2, Video, AlertCircle, CalendarDays, Loader2 } from 'lucide-react';
+
+function StatusPill({ isLive, isRolledOver, isRescheduled }) {
+    if (isLive) return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full"
+            style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+            Live Now
+        </span>
+    );
+    if (isRolledOver) return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full"
+            style={{ background: 'var(--warning-light)', color: '#b45309', border: '1px solid #fde68a' }}>
+            Next Session
+        </span>
+    );
+    return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full"
+            style={{ background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid #c7d2fe' }}>
+            Scheduled
+        </span>
+    );
+}
 
 export default function SlotCard({ slot, onRegister, onJoin, registration, loading }) {
     const startTime = new Date(slot.startTime);
     const now = new Date();
+    const isLive = now >= startTime && !slot.isRolledOver;
+    const isRolledOver = slot.isRolledOver;
+    const isRescheduled = slot.isRescheduled;
+    const hasRoom = registration?.status === 'confirmed' && registration?.room?._id;
+
     const timeStr = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const dateStr = startTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
-    const isRegistered = !!registration;
-    const isLive = now >= startTime && !slot.isRolledOver;
-    const isRescheduled = slot.isRescheduled;
-    const hasRoom = registration?.status === 'confirmed' && registration?.room?._id;
-    const isRolledOver = slot.isRolledOver;
+    // Fill progress
+    const fillPct = Math.min((slot.waitingQueue.length / slot.maxParticipants) * 100, 100);
 
-    // Determine Button State
-    let buttonConfig = {
-        label: isRolledOver ? "Register for Next" : "Join Discussion",
-        action: () => onRegister(slot._id),
-        className: isRolledOver ? "bg-amber-600 text-white hover:bg-amber-700 shadow-amber-100 shadow-lg" : "btn-primary",
-        icon: isRolledOver ? CalendarDays : Zap
+    // Button state
+    let btn = {
+        label: isRolledOver ? 'Register for Next' : 'Register Now',
+        onClick: () => onRegister(slot._id),
+        style: 'primary',
+        icon: isRolledOver ? CalendarDays : Zap,
     };
 
     if (loading) {
-        buttonConfig = { label: "Processing...", action: null, className: "bg-slate-100 text-slate-400 cursor-wait", icon: null };
-    } else if (isRegistered) {
+        btn = { label: 'Processing...', onClick: null, style: 'disabled', icon: Loader2 };
+    } else if (registration) {
         if (registration.userStatus === 'COMPLETED') {
-            buttonConfig = {
-                label: "GD Completed",
-                action: null,
-                className: "bg-slate-100 text-slate-500 cursor-not-allowed border border-slate-200",
-                icon: CheckCircle2
-            };
+            btn = { label: 'Completed', onClick: null, style: 'muted', icon: CheckCircle2 };
         } else if (isLive && hasRoom) {
-            buttonConfig = {
-                label: "Join Room Now",
-                action: () => onJoin(registration.room._id),
-                className: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 shadow-lg animate-pulse",
-                icon: Video
-            };
+            btn = { label: 'Join Room Now', onClick: () => onJoin(registration.room._id), style: 'success', icon: Video };
         } else {
-            buttonConfig = {
-                label: "Registered",
-                action: null,
-                className: "bg-emerald-50 text-emerald-700 cursor-default border border-emerald-100",
-                icon: CheckCircle2
-            };
+            btn = { label: 'Registered', onClick: null, style: 'registered', icon: CheckCircle2 };
         }
     }
 
+    const btnStyles = {
+        primary: {
+            background: 'var(--primary)',
+            color: 'white',
+            boxShadow: 'var(--shadow-primary)',
+            cursor: 'pointer',
+        },
+        success: {
+            background: 'var(--success)',
+            color: 'white',
+            animation: 'pulse 2s infinite',
+            cursor: 'pointer',
+        },
+        registered: {
+            background: 'var(--success-light)',
+            color: '#047857',
+            border: '1px solid #a7f3d0',
+            cursor: 'default',
+        },
+        muted: {
+            background: 'var(--bg-subtle)',
+            color: 'var(--text-muted)',
+            border: '1px solid var(--border)',
+            cursor: 'not-allowed',
+        },
+        disabled: {
+            background: 'var(--bg-subtle)',
+            color: 'var(--text-muted)',
+            cursor: 'wait',
+        },
+    };
+
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 10 }}
+        <motion.article
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="card-modern p-6 flex flex-col gap-4 bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-indigo-100"
+            className="card-hover flex flex-col"
         >
-            <div className="flex justify-between items-start">
-                <div className="flex flex-col gap-2">
-                    <div className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider w-fit ${isLive ? 'bg-rose-50 text-rose-600 border border-rose-100 animate-pulse' : isRolledOver ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-indigo-50 text-[var(--primary)]'}`}>
-                        {isLive ? '• Live Now' : isRolledOver ? 'Next Session' : 'Scheduled'}
-                    </div>
-                    {isRescheduled && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold rounded-lg border border-amber-100 shadow-sm animate-in fade-in slide-in-from-left-2">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            RESCHEDULED TO TOMORROW
-                        </div>
+            {/* Top accent bar */}
+            <div
+                className="h-1 rounded-t-2xl"
+                style={{
+                    background: isLive
+                        ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                        : isRolledOver
+                            ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                            : 'linear-gradient(90deg, var(--primary), var(--accent))',
+                }}
+            />
+
+            <div className="p-5 flex flex-col gap-4 flex-1">
+                {/* Header row */}
+                <div className="flex items-start justify-between gap-2">
+                    <StatusPill isLive={isLive} isRolledOver={isRolledOver} isRescheduled={isRescheduled} />
+                    {registration && registration.userStatus !== 'COMPLETED' && (
+                        <span className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'var(--success)' }}>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Registered
+                        </span>
                     )}
                 </div>
-                {isRegistered && (
-                    <div className="flex items-center gap-1 text-emerald-600 text-xs font-bold">
-                        <CheckCircle2 className="w-4 h-4" /> Registered
-                    </div>
-                )}
-            </div>
 
-            <div>
-                <h3 className="text-xl font-bold text-[var(--text-main)] mb-2 group-hover:text-[var(--primary)] transition-colors min-h-[1.5rem] leading-tight">
-                    {slot.topic && slot.topic.trim() !== '' ? slot.topic : 'Topic will be assigned when GD starts'}
-                </h3>
-                <p className="text-sm text-[var(--text-secondary)] line-clamp-2 min-h-[40px]">
-                    {slot.description || "Join this session to discuss and learn."}
-                </p>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-[var(--text-muted)] mt-2 font-bold uppercase tracking-tight">
-                <div className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>{dateStr} @ {timeStr}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>{slot.waitingQueue.length}/{slot.maxParticipants} Students</span>
-                </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-[var(--border-light)]">
-                {registration?.userStatus === 'COMPLETED' && (
-                    <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-100 rounded-xl mb-4 text-slate-600 animate-in fade-in slide-in-from-top-2">
-                        <CheckCircle2 className="w-4 h-4 text-slate-400" />
-                        <span className="text-xs font-bold">You have successfully completed this GD.</span>
+                {/* Reschedule notice */}
+                {isRescheduled && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                        style={{ background: 'var(--warning-light)', color: '#92400e', border: '1px solid #fde68a' }}>
+                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                        Rescheduled to tomorrow due to low attendance
                     </div>
                 )}
 
+                {/* Topic */}
+                <div className="flex-1">
+                    <h3 className="font-bold text-base leading-snug mb-1.5" style={{ color: 'var(--text-main)' }}>
+                        {slot.topic?.trim() ? slot.topic : (
+                            <span className="italic font-medium" style={{ color: 'var(--text-muted)' }}>
+                                AI topic assigned at start
+                            </span>
+                        )}
+                    </h3>
+                    {slot.description && (
+                        <p className="text-sm line-clamp-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                            {slot.description}
+                        </p>
+                    )}
+                </div>
+
+                {/* Meta */}
+                <div className="flex items-center gap-4 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                    <span className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" style={{ color: 'var(--primary)' }} />
+                        {dateStr} · {timeStr}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5" style={{ color: 'var(--primary)' }} />
+                        {slot.waitingQueue.length}/{slot.maxParticipants}
+                    </span>
+                </div>
+
+                {/* Fill bar */}
+                <div className="space-y-1.5">
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${fillPct}%` }}
+                            transition={{ duration: 0.6, ease: 'easeOut' }}
+                            className="h-full rounded-full"
+                            style={{
+                                background: fillPct >= 80
+                                    ? 'var(--danger)'
+                                    : fillPct >= 50
+                                        ? 'var(--warning)'
+                                        : 'var(--primary)',
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* CTA */}
                 <button
-                    className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${buttonConfig.className}`}
-                    disabled={!buttonConfig.action || loading}
-                    onClick={() => buttonConfig.action && buttonConfig.action()}
+                    onClick={btn.onClick ?? undefined}
+                    disabled={!btn.onClick || loading}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all duration-150"
+                    style={btnStyles[btn.style]}
+                    onMouseEnter={e => {
+                        if (btn.style === 'primary') e.currentTarget.style.background = 'var(--primary-hover)';
+                        if (btn.style === 'success') e.currentTarget.style.opacity = '0.9';
+                    }}
+                    onMouseLeave={e => {
+                        if (btn.style === 'primary') e.currentTarget.style.background = 'var(--primary)';
+                        if (btn.style === 'success') e.currentTarget.style.opacity = '1';
+                    }}
                 >
                     {loading ? (
-                        <div className="w-4 h-4 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                         <>
-                            {buttonConfig.icon && <buttonConfig.icon className="w-4 h-4" />}
-                            {buttonConfig.label}
+                            <btn.icon className="w-4 h-4" />
+                            {btn.label}
                         </>
                     )}
                 </button>
 
-                {isRegistered && !hasRoom && isLive && (
-                    <p className="text-[10px] text-amber-600 font-bold mt-2 text-center bg-amber-50 py-1 rounded">
-                        Waiting for team matching...
+                {registration && !hasRoom && isLive && registration.userStatus !== 'COMPLETED' && (
+                    <p className="text-center text-xs font-medium" style={{ color: 'var(--warning)' }}>
+                        Matching in progress — please wait…
                     </p>
                 )}
             </div>
-        </motion.div>
+        </motion.article>
     );
 }

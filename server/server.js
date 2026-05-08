@@ -4,7 +4,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const http = require('http');
 const { Server } = require('socket.io');
-const { initScheduler } = require('./utils/scheduler'); // Import Scheduler
+const { initScheduler } = require('./utils/scheduler');
+const { setIO } = require('./utils/socketManager');
 
 require('dotenv').config();
 
@@ -28,6 +29,7 @@ const io = new Server(server, {
 
 // Make io accessible to routes
 app.set('io', io);
+setIO(io);
 
 // ─── Middleware ─────────────────────────────────────────────
 app.use(cors({
@@ -60,15 +62,8 @@ app.use((err, req, res, next) => {
 
 // ─── Socket.IO Connections ─────────────────────────────────
 io.on('connection', (socket) => {
-    console.log('🔌 Socket connected:', socket.id);
-
-    socket.on('join-admin', () => {
-        socket.join('admin-room');
-    });
-
-    socket.on('disconnect', () => {
-        console.log('🔌 Socket disconnected:', socket.id);
-    });
+    socket.on('join-admin', () => socket.join('admin-room'));
+    socket.on('disconnect', () => {});
 });
 
 // ─── Connect DB & Start Server ─────────────────────────────

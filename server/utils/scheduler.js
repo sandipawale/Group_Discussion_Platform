@@ -4,6 +4,7 @@ const SessionInstance = require('../models/SessionInstance');
 const User = require('../models/User');
 const nodemailer = require('nodemailer');
 const { generateGDTopic } = require('../services/topicService');
+const { analyzeSession } = require('../services/analysisService');
 
 // Email Transporter
 const transporter = nodemailer.createTransport({
@@ -83,30 +84,40 @@ const runScheduleTask = async () => {
 
             if (participants.length >= slot.minParticipants) {
                 const batchSize = slot.batchSize || 4;
-                const isAutoTopic = !slot.topic || slot.topic.trim() === '' || slot.topic.toUpperCase() === 'TBD';
+                const adminSetTopic = slot.topic && slot.topic.trim() !== '' && slot.topic.toUpperCase() !== 'TBD';
 
-                let roomTopic = { topic: slot.topic, description: slot.description };
+                // ─── Generate ONE topic for the entire slot (shared across all rooms) ───
+                let slotTopic;
+                if (adminSetTopic) {
+                    slotTopic = { topic: slot.topic, description: slot.description };
+                } else {
+                    // Collect recently used topics globally to avoid repetition
+                    const existingInstances = await SessionInstance.find(
+                        {},
+                        { topic: 1 },
+                        { sort: { startTime: -1 }, limit: 50 }
+                    );
+                    const usedTopics = existingInstances.map(s => s.topic).filter(Boolean);
 
-                // ─── Generate topic ONCE per slot if needed ───
-                if (isAutoTopic) {
                     try {
-                        roomTopic = await generateGDTopic();
-                        // Update parent slot immediately so next rooms use same topic
-                        slot.topic = roomTopic.topic;
-                        slot.description = roomTopic.description;
+                        slotTopic = await generateGDTopic(usedTopics);
                     } catch (topicErr) {
-                        console.error('Gemini topic generation failed for slot, using defaults:', topicErr);
-                        roomTopic = {
+                        console.error('Topic generation failed, using fallback:', topicErr.message);
+                        slotTopic = {
                             topic: 'Technology and Society GD',
                             description: 'A discussion on the impact of modern technology on human connections.'
                         };
                     }
+
+                    // Save the generated topic back to the slot so admin panel shows it
+                    slot.topic = slotTopic.topic;
+                    slot.description = slotTopic.description;
                 }
+
+                console.log(`🎯 Slot topic: "${slotTopic.topic}"`);
 
                 for (let i = 0; i < participants.length; i += batchSize) {
                     const chunkList = participants.slice(i, i + batchSize);
-
-                    // Only start if we have a viable chunk (at least 2 if possible, or whatever is left)
                     if (chunkList.length < 1) continue;
 
                     const roomName = `room-${slot._id}-${Date.now()}-${i}`;
@@ -115,14 +126,13 @@ const runScheduleTask = async () => {
                         slotId: slot._id,
                         participants: chunkList.map(u => u._id),
                         livekitRoomName: roomName,
-                        topic: roomTopic.topic,
-                        description: roomTopic.description,
+                        topic: slotTopic.topic,
+                        description: slotTopic.description,
                         startTime: new Date(),
                         endTime: slot.endTime,
                         status: 'LIVE'
                     });
                     slot.occurrences.push(instance._id);
-
 
                     // ─── Mark participants as CONFIRMED so they aren't picked up again ───
                     for (const user of chunkList) {
@@ -134,9 +144,10 @@ const runScheduleTask = async () => {
                         });
                         if (qIdx !== -1) slot.waitingQueue[qIdx].status = 'CONFIRMED';
                     }
+
+                    console.log(`🚀 Room created: "${slotTopic.topic}" (${chunkList.length} users)`);
                 }
                 hasChanged = true;
-                console.log(`🚀 Started/Scaled rooms for slot "${slot.topic}" (${participants.length} users processed)`);
             }
 
             if (hasChanged) {
@@ -152,31 +163,23 @@ const runScheduleTask = async () => {
         });
 
         for (const slot of slotsToEnd) {
-            const hasWaiting = slot.waitingQueue.some(q => q.status === 'WAITING');
+            console.log(`🏁 Ending slot "${slot.topic}"`);
+            slot.status = 'COMPLETED';
+            slot.isActive = false;
+            await slot.save();
 
-            if (hasWaiting) {
-                console.log(`♻️ Auto-rolling over slot "${slot.topic}" for pending students.`);
-                const newStartTime = new Date(slot.startTime);
-                newStartTime.setDate(newStartTime.getDate() + 1);
-                const newEndTime = new Date(slot.endTime);
-                newEndTime.setDate(newEndTime.getDate() + 1);
-
-                slot.startTime = newStartTime;
-                slot.endTime = newEndTime;
-                slot.status = 'SCHEDULED'; // Reset to scheduled for tomorrow
-                slot.isRescheduled = false; // Rollover is normal behavior
-                await slot.save();
-            } else {
-                console.log(`🏁 Ending slot "${slot.topic}"`);
-                slot.status = 'COMPLETED';
-                await slot.save();
-            }
-
-            // Always mark associated LIVE instances as COMPLETED
+            // Mark associated LIVE instances as COMPLETED and trigger AI analysis
+            const liveInstances = await SessionInstance.find({ slotId: slot._id, status: 'LIVE' });
             await SessionInstance.updateMany(
                 { slotId: slot._id, status: 'LIVE' },
-                { status: 'COMPLETED' }
+                { status: 'COMPLETED', endTime: new Date() }
             );
+            // Trigger async AI analysis for each completed session (non-blocking)
+            for (const instance of liveInstances) {
+                analyzeSession(instance._id).catch(err =>
+                    console.error(`Analysis trigger failed for ${instance._id}:`, err.message)
+                );
+            }
         }
 
     } catch (err) {

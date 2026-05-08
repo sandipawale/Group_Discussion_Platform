@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: gd-platform-backend
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # Set the rest manually in the Render dashboard:
+      # MONGO_URI, JWT_SECRET, JWT_EXPIRES_IN,
+      # SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS,
+      # LIVEKIT_API_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
+      # DEEPGRAM_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY,
+      # CLIENT_URL, ADMIN_EMAIL

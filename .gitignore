@@ -1,0 +1,8 @@
+node_modules
+.env
+*.local
+
+# Debug/utility scripts (not needed in production)
+db_inspect.js
+db_inspect_v2.js
+verify_fix.js

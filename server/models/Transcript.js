@@ -4,7 +4,7 @@ const transcriptSchema = new mongoose.Schema(
     {
         roomId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'Room',
+            ref: 'SessionInstance',
             required: true,
         },
         userId: {

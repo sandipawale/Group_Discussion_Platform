@@ -1,12 +1,11 @@
 const Slot = require('../models/Slot');
-const Room = require('../models/Room');
+const SessionInstance = require('../models/SessionInstance');
 
 // ─── My Registrations (Confirmed + Pending) ────────────────
 exports.getMyRegistrations = async (req, res) => {
     try {
         const userId = req.user._id;
 
-        // Find slots where user is in waitingQueue
         const slots = await Slot.find({
             'waitingQueue.userId': userId,
         });
@@ -20,8 +19,7 @@ exports.getMyRegistrations = async (req, res) => {
             );
 
             if (entry?.status === 'CONFIRMED') {
-                // Find the room for this user + slot
-                const room = await Room.findOne({
+                const room = await SessionInstance.findOne({
                     slotId: slot._id,
                     participants: userId,
                 }).populate('participants', 'name email collegeName');
@@ -39,6 +37,7 @@ exports.getMyRegistrations = async (req, res) => {
                             livekitRoomName: room.livekitRoomName,
                             status: room.status,
                             participants: room.participants,
+                            topic: room.topic,
                         }
                         : null,
                 });
@@ -55,7 +54,7 @@ exports.getMyRegistrations = async (req, res) => {
                         endTime: slot.endTime,
                     },
                     waitingCount,
-                    needMore: 4 - (waitingCount % 4 === 0 ? 4 : waitingCount % 4),
+                    needMore: Math.max(0, slot.minParticipants - waitingCount),
                 });
             }
         }
@@ -72,14 +71,14 @@ exports.getStats = async (req, res) => {
     try {
         const userId = req.user._id;
 
-        const completedRooms = await Room.countDocuments({
+        const completedRooms = await SessionInstance.countDocuments({
             participants: userId,
-            status: 'completed',
+            status: 'COMPLETED',
         });
 
-        const activeRooms = await Room.countDocuments({
+        const activeRooms = await SessionInstance.countDocuments({
             participants: userId,
-            status: { $in: ['waiting', 'active'] },
+            status: 'LIVE',
         });
 
         res.json({

@@ -44,7 +44,22 @@ const sessionInstanceSchema = new mongoose.Schema({
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         score: { type: Number, default: 0 },
         feedback: { type: String, default: '' }
-    }]
+    }],
+    participantAnalysis: [{
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        name: { type: String, default: '' },
+        performanceScore: { type: Number, default: 0, min: 0, max: 10 },
+        isOffTopic: { type: Boolean, default: false },
+        isMisbehaving: { type: Boolean, default: false },
+        flags: { type: [String], default: [] },
+        summary: { type: String, default: '' }
+    }],
+    analysisStatus: {
+        type: String,
+        enum: ['pending', 'completed', 'failed'],
+        default: 'pending'
+    },
+    overallSummary: { type: String, default: '' }
 }, { timestamps: true });
 
 module.exports = mongoose.model('SessionInstance', sessionInstanceSchema);

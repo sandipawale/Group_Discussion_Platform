@@ -1,177 +1,136 @@
 /**
  * AI Security Agent
  * -----------------
- * Connects as a hidden participant to a LiveKit room,
- * streams audio to Deepgram for STT, then sends transcripts
- * to Google Gemini 1.5 Flash for threat analysis.
- *
- * Usage:
- *   const { startAgent } = require('./services/aiAgent');
- *   startAgent(roomName, io);  // io = Socket.IO instance
+ * Called after session analysis completes.
+ * Scans transcripts for risky words and security threats using OpenRouter.
+ * Emits real-time socket events to admin dashboard.
  */
 
-const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
-const { createClient } = require('@deepgram/sdk');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const https = require('https');
 const User = require('../models/User');
-const Transcript = require('../models/Transcript');
-const Room = require('../models/Room');
+const SessionInstance = require('../models/SessionInstance');
+const { getIO } = require('../utils/socketManager');
 
-const ANALYSIS_INTERVAL_MS = 30000; // Analyze every 30 seconds
+const SECURITY_MODELS = [
+    'google/gemma-4-31b-it:free',
+    'nvidia/nemotron-3-nano-30b-a3b:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+];
 
-/**
- * Start the AI Security Agent for a given LiveKit room.
- */
-async function startAgent(roomName, io) {
-    console.log(`🤖 AI Agent starting for room: ${roomName}`);
+function callOpenRouter(prompt) {
+    return new Promise((resolve, reject) => {
+        const tryModel = (idx) => {
+            if (idx >= SECURITY_MODELS.length) return reject(new Error('All security models failed'));
+            const model = SECURITY_MODELS[idx];
+            const body = JSON.stringify({
+                model,
+                messages: [{ role: 'user', content: prompt }],
+            });
+            const req = https.request({
+                hostname: 'openrouter.ai',
+                path: '/api/v1/chat/completions',
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(body),
+                },
+            }, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try {
+                        const json = JSON.parse(data);
+                        if (json.error) { return tryModel(idx + 1); }
+                        resolve(json.choices[0].message.content);
+                    } catch (e) { tryModel(idx + 1); }
+                });
+            });
+            req.on('error', () => tryModel(idx + 1));
+            req.setTimeout(15000, () => { req.destroy(); tryModel(idx + 1); });
+            req.write(body);
+            req.end();
+        };
+        tryModel(0);
+    });
+}
 
+async function runSecurityCheck(sessionId, transcriptTexts, topic) {
     try {
-        // ─── 1. Initialize Deepgram ─────────────────────────
-        const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+        const combinedText = transcriptTexts.join('\n').trim();
+        if (!combinedText || combinedText.length < 20) return;
 
-        // ─── 2. Initialize Gemini ───────────────────────────
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const prompt = `You are a security content moderator for an educational platform. Analyze the following group discussion transcript from engineering college students.
 
-        // ─── 3. Transcript buffer ───────────────────────────
-        let transcriptBuffer = '';
-        let analysisTimer = null;
+Topic: "${topic || 'Group Discussion'}"
 
-        // ─── 4. Deepgram Live Transcription ─────────────────
-        const connection = deepgram.listen.live({
-            model: 'nova-2',
-            language: 'en',
-            smart_format: true,
-            interim_results: false,
-        });
-
-        connection.on('open', () => {
-            console.log(`🎤 Deepgram connection open for room: ${roomName}`);
-        });
-
-        connection.on('transcript', async (data) => {
-            const transcript = data.channel?.alternatives?.[0]?.transcript;
-            if (transcript && transcript.trim()) {
-                console.log(`📝 [${roomName}] Transcript: ${transcript}`);
-                transcriptBuffer += transcript + ' ';
-
-                // Save transcript to DB
-                const room = await Room.findOne({ livekitRoomName: roomName });
-                if (room) {
-                    await Transcript.create({
-                        roomId: room._id,
-                        text: transcript,
-                    });
-                }
-            }
-        });
-
-        connection.on('error', (err) => {
-            console.error(`❌ Deepgram error [${roomName}]:`, err);
-        });
-
-        connection.on('close', () => {
-            console.log(`🔇 Deepgram connection closed for room: ${roomName}`);
-            if (analysisTimer) clearInterval(analysisTimer);
-        });
-
-        // ─── 5. Periodic Gemini Analysis ────────────────────
-        analysisTimer = setInterval(async () => {
-            if (!transcriptBuffer.trim()) return;
-
-            const textToAnalyze = transcriptBuffer;
-            // Removed: transcriptBuffer = ''; // Don't clear yet
-
-            try {
-                const prompt = `You are a security analysis AI. Analyze the following group discussion transcript for severe security threats (terrorism, violent extremism, credible threats) AND extract a list of "risky words" (slurs, profanity, or words that clearly violate professional conduct).
-
-IMPORTANT: 
-1. Ignore academic discussions, technical jargon, or debates about controversial policies unless they turn into actual threats.
-2. Provide a list of specific "risky words" found in the transcript if any.
+Detect:
+1. Risky words: profanity, slurs, hate speech, or clearly unprofessional language (ignore normal academic debate words)
+2. Severe threats: terrorism, violence, or credible threats (NOT heated arguments or strong opinions)
 
 Transcript:
 """
-${textToAnalyze}
+${combinedText.slice(0, 3000)}
 """
 
 Respond ONLY with valid JSON (no markdown):
-{"isThreat": boolean, "reason": "string explaining the threat or 'No threat detected'", "riskyWords": ["word1", "word2"]}`;
+{"isThreat": false, "reason": "No threat detected", "riskyWords": ["word1", "word2"]}
 
-                const result = await model.generateContent(prompt);
-                const responseText = result.response.text();
+If no risky words found, return empty array. Be conservative — only flag actual profanity or threats.`;
 
-                // Parse JSON from response
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    const analysis = JSON.parse(jsonMatch[0]);
+        const responseText = await callOpenRouter(prompt);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return;
 
-                    // CLEAR BUFFER ON SUCCESSFUL PARSE
-                    transcriptBuffer = transcriptBuffer.replace(textToAnalyze, '');
+        const result = JSON.parse(jsonMatch[0]);
+        const session = await SessionInstance.findById(sessionId).populate('participants', '_id name email');
+        if (!session) return;
 
-                    const sessionInstance = await SessionInstance.findOne({ livekitRoomName: roomName });
-                    if (sessionInstance) {
-                        // ─── Save Risky Words ───
-                        if (analysis.riskyWords && Array.isArray(analysis.riskyWords) && analysis.riskyWords.length > 0) {
-                            console.log(`⚠️ RISKY WORDS found in ${roomName}:`, analysis.riskyWords);
-                            sessionInstance.riskyWords = [...new Set([...sessionInstance.riskyWords, ...analysis.riskyWords])];
-                            await sessionInstance.save();
+        const io = getIO();
+        let changed = false;
 
-                            if (io) {
-                                io.to('admin-room').emit('risk-words-update', {
-                                    roomName,
-                                    newWords: analysis.riskyWords,
-                                    allWords: sessionInstance.riskyWords
-                                });
-                            }
-                        }
+        // Save risky words
+        if (Array.isArray(result.riskyWords) && result.riskyWords.length > 0) {
+            const cleaned = result.riskyWords.map(w => String(w).toLowerCase().trim()).filter(Boolean);
+            session.riskyWords = [...new Set([...(session.riskyWords || []), ...cleaned])];
+            changed = true;
+            console.log(`⚠️ Security: risky words in session ${sessionId}:`, cleaned);
 
-                        // ─── Severe Threat Logic ───
-                        if (analysis.isThreat) {
-                            console.log(`🚨 THREAT DETECTED in room ${roomName}: ${analysis.reason}`);
-                            await User.updateMany(
-                                { _id: { $in: sessionInstance.participants } },
-                                { isFlagged: true, flagReason: analysis.reason }
-                            );
-
-                            await Transcript.updateMany(
-                                { roomId: sessionInstance._id },
-                                { isThreat: true, threatReason: analysis.reason }
-                            );
-
-                            if (io) {
-                                io.to('admin-room').emit('threat-alert', {
-                                    roomName,
-                                    roomId: sessionInstance._id,
-                                    reason: analysis.reason,
-                                    timestamp: new Date(),
-                                });
-                            }
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error(`❌ Gemini analysis error [${roomName}]:`, err.message);
-                // Buffer is NOT cleared on error, it will retry with accumulated text next interval
+            if (io) {
+                io.to('admin-room').emit('risk-words-update', {
+                    sessionId: sessionId.toString(),
+                    topic: session.topic,
+                    newWords: cleaned,
+                });
             }
-        }, ANALYSIS_INTERVAL_MS);
+        }
 
-        // Return control handles
-        return {
-            sendAudio: (audioBuffer) => {
-                if (connection.getReadyState() === 1) {
-                    connection.send(audioBuffer);
-                }
-            },
-            stop: () => {
-                if (analysisTimer) clearInterval(analysisTimer);
-                connection.finish();
-                console.log(`🛑 AI Agent stopped for room: ${roomName}`);
-            },
-        };
+        // Flag users for severe threats
+        if (result.isThreat && session.participants?.length) {
+            const reason = result.reason || 'Policy violation detected';
+            await User.updateMany(
+                { _id: { $in: session.participants.map(p => p._id) } },
+                { isFlagged: true, flagReason: reason }
+            );
+            console.log(`🚨 Security: threat detected in session ${sessionId}: ${reason}`);
+
+            if (io) {
+                io.to('admin-room').emit('threat-alert', {
+                    sessionId: sessionId.toString(),
+                    topic: session.topic,
+                    reason,
+                    participantCount: session.participants.length,
+                    timestamp: new Date(),
+                });
+            }
+        }
+
+        if (changed) await session.save();
+
     } catch (err) {
-        console.error(`❌ AI Agent startup error [${roomName}]:`, err.message);
-        return null;
+        console.error(`Security check failed for session ${sessionId}:`, err.message);
     }
 }
 
-module.exports = { startAgent };
+module.exports = { runSecurityCheck };

@@ -1,6 +1,8 @@
 const { AccessToken } = require('livekit-server-sdk');
+const { createClient } = require('@deepgram/sdk');
 const SessionInstance = require('../models/SessionInstance');
 const Slot = require('../models/Slot');
+const Transcript = require('../models/Transcript');
 
 // ─── Get Room Token (LiveKit) ──────────────────────────────
 exports.getRoomToken = async (req, res) => {
@@ -77,6 +79,120 @@ exports.getRoomToken = async (req, res) => {
     } catch (err) {
         console.error('Get Room Token Error:', err);
         res.status(500).json({ success: false, message: 'Failed to generate token' });
+    }
+};
+
+// ─── Submit Transcript Chunk ──────────────────────────────────
+exports.submitTranscript = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { text } = req.body;
+
+        if (!text || !text.trim()) {
+            return res.status(400).json({ success: false, message: 'Text is required' });
+        }
+
+        const session = await SessionInstance.findById(id);
+        if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
+
+        // Verify user is a participant
+        const isParticipant = session.participants.some(p => p.toString() === req.user._id.toString());
+        if (!isParticipant) {
+            return res.status(403).json({ success: false, message: 'Not a participant of this session' });
+        }
+
+        await Transcript.create({
+            roomId: session._id,
+            userId: req.user._id,
+            text: text.trim(),
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Submit Transcript Error:', err);
+        res.status(500).json({ success: false, message: 'Failed to save transcript' });
+    }
+};
+
+// ─── Leave Room (mark session complete + trigger analysis) ─
+exports.leaveRoom = async (req, res) => {
+    try {
+        const session = await SessionInstance.findById(req.params.id);
+        if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
+
+        const isParticipant = session.participants.some(p => p.toString() === req.user._id.toString());
+        if (!isParticipant) return res.status(403).json({ success: false, message: 'Not a participant' });
+
+        if (session.status !== 'COMPLETED') {
+            session.status = 'COMPLETED';
+            session.endTime = new Date();
+            await session.save();
+
+            const { analyzeSession } = require('../services/analysisService');
+            analyzeSession(session._id).catch(err =>
+                console.error(`Analysis failed for ${session._id}:`, err.message)
+            );
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Leave Room Error:', err);
+        res.status(500).json({ success: false, message: 'Failed to complete session' });
+    }
+};
+
+// ─── Transcribe Audio (Deepgram pre-recorded) ─────────────
+exports.transcribeAudio = async (req, res) => {
+    try {
+        const session = await SessionInstance.findById(req.params.id);
+        if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
+
+        const isParticipant = session.participants.some(p => p.toString() === req.user._id.toString());
+        if (!isParticipant) return res.status(403).json({ success: false });
+
+        const audioBuffer = req.body;
+        if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length < 500) {
+            console.log(`⚠️ Audio too small or missing for session ${req.params.id}`);
+            return res.json({ success: true, message: 'No audio data' });
+        }
+
+        console.log(`🎙️ Transcribing audio for user ${req.user._id}, size: ${(audioBuffer.length / 1024).toFixed(1)}KB`);
+
+        const dg = createClient(process.env.DEEPGRAM_API_KEY);
+        const { result, error } = await dg.listen.prerecorded.transcribeFile(audioBuffer, {
+            model: 'nova-2',
+            language: 'en-IN',
+            smart_format: true,
+            punctuate: true,
+            paragraphs: true,
+        });
+
+        if (error) {
+            console.error('Deepgram transcription error:', error);
+            return res.json({ success: false, message: 'Transcription failed' });
+        }
+
+        const fullText = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim();
+
+        if (fullText) {
+            await Transcript.create({ roomId: session._id, userId: req.user._id, text: fullText });
+            console.log(`✅ Transcript saved [${req.user.name || req.user._id}]: "${fullText.slice(0, 80)}..."`);
+
+            // Trigger analysis once we have at least one transcript and session is done
+            if (session.status === 'COMPLETED') {
+                const { analyzeSession } = require('../services/analysisService');
+                analyzeSession(session._id).catch(err =>
+                    console.error('Post-transcription analysis failed:', err.message)
+                );
+            }
+        } else {
+            console.log(`⚠️ Deepgram returned empty transcript for user ${req.user._id}`);
+        }
+
+        res.json({ success: true, transcribed: !!fullText });
+    } catch (err) {
+        console.error('Transcribe Audio Error:', err);
+        res.status(500).json({ success: false, message: 'Transcription failed' });
     }
 };
 

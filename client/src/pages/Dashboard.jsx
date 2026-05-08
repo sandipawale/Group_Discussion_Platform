@@ -14,7 +14,7 @@ export default function Dashboard() {
     const [registeredIds, setRegisteredIds] = useState(new Set());
     const [loadingSlots, setLoadingSlots] = useState(true);
     const [registeringId, setRegisteringId] = useState(null);
-    const [registrations, setRegistrations] = useState({}); // slotId -> registration object
+    const [registrations, setRegistrations] = useState({});
 
     const fetchDashboardData = async () => {
         setLoadingSlots(true);
@@ -40,9 +40,7 @@ export default function Dashboard() {
         }
     };
 
-    useEffect(() => {
-        fetchDashboardData();
-    }, []);
+    useEffect(() => { fetchDashboardData(); }, []);
 
     const handleRegister = async (slotId) => {
         setRegisteringId(slotId);
@@ -57,73 +55,95 @@ export default function Dashboard() {
         }
     };
 
-    const handleJoin = (roomId) => {
-        navigate(`/room/${roomId}`);
-    };
+    const handleJoin = (roomId) => navigate(`/room/${roomId}`);
 
     return (
-        <div className="flex min-h-screen bg-[var(--bg-main)]">
+        <div className="page-shell">
             <Sidebar />
-
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="page-content">
                 <Navbar />
+                <main className="page-main space-y-10">
 
-                <main className="page-container w-full space-y-10">
-                    {/* Available Slots Section */}
+                    {/* Available Sessions */}
                     <section>
-                        <div className="flex items-center justify-between section-header">
+                        <div className="flex items-center justify-between mb-5">
                             <div>
-                                <h2 className="text-2xl font-bold text-[var(--text-main)]">Available Sessions</h2>
-                                <p className="text-sm text-[var(--text-secondary)] mt-1 font-medium">Join a discussion to participate.</p>
+                                <h2 className="text-xl font-extrabold" style={{ color: 'var(--text-main)' }}>
+                                    Available Sessions
+                                </h2>
+                                <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-muted)' }}>
+                                    Register and join a live group discussion.
+                                </p>
                             </div>
                             <button
                                 onClick={fetchDashboardData}
-                                className="btn-modern btn-ghost"
+                                className="btn btn-ghost flex items-center gap-2"
                             >
-                                <RefreshCw className={`w-4 h-4 text-[var(--primary)] ${loadingSlots ? 'animate-spin' : ''}`} />
-                                <span className="text-[var(--primary)] font-bold">Refresh</span>
+                                <RefreshCw className={`w-4 h-4 ${loadingSlots ? 'animate-spin' : ''}`}
+                                    style={{ color: 'var(--primary)' }} />
+                                <span className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>Refresh</span>
                             </button>
                         </div>
 
                         {loadingSlots ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                 {[1, 2, 3].map(i => (
-                                    <div key={i} className="h-48 rounded-[var(--radius-xl)] bg-slate-100 animate-pulse" />
+                                    <div key={i} className="h-52 rounded-2xl animate-pulse"
+                                        style={{ background: 'var(--bg-subtle)' }} />
                                 ))}
                             </div>
-                        ) : slots.length === 0 ? (
-                            <div className="py-16 text-center bg-white rounded-[var(--radius-xl)] border border-dashed border-[var(--border-light)]">
-                                <CalendarDays className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3" />
-                                <h3 className="text-base font-bold text-[var(--text-secondary)]">No sessions available</h3>
-                                <p className="text-sm text-[var(--text-muted)] mt-1">Please check back later.</p>
-                            </div>
+                        ) : slots.filter(s => registrations[s._id]?.userStatus !== 'COMPLETED').length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="py-16 text-center rounded-2xl border border-dashed"
+                                style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                            >
+                                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
+                                    style={{ background: 'var(--bg-subtle)' }}>
+                                    <CalendarDays className="w-6 h-6" style={{ color: 'var(--text-muted)' }} />
+                                </div>
+                                <h3 className="text-sm font-bold" style={{ color: 'var(--text-secondary)' }}>
+                                    No sessions available
+                                </h3>
+                                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                                    Check back later for upcoming sessions.
+                                </p>
+                            </motion.div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {slots.map((slot) => (
-                                    <SlotCard
-                                        key={slot._id}
-                                        slot={slot}
-                                        onRegister={handleRegister}
-                                        onJoin={handleJoin}
-                                        registration={registrations[slot._id]}
-                                        loading={registeringId === slot._id}
-                                    />
-                                ))}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {slots
+                                    .filter(s => registrations[s._id]?.userStatus !== 'COMPLETED')
+                                    .map((slot) => (
+                                        <SlotCard
+                                            key={slot._id}
+                                            slot={slot}
+                                            onRegister={handleRegister}
+                                            onJoin={handleJoin}
+                                            registration={registrations[slot._id]}
+                                            loading={registeringId === slot._id}
+                                        />
+                                    ))}
                             </div>
                         )}
                     </section>
 
                     {/* Activity Section */}
-                    <section className="pt-8 border-t border-[var(--border-light)]">
-                        <div className="section-header">
-                            <h2 className="text-2xl font-bold text-[var(--text-main)]">Your Activity</h2>
-                            <p className="text-sm text-[var(--text-secondary)] mt-1 font-medium">Manage your upcoming and past sessions.</p>
+                    <section className="pt-8 border-t" style={{ borderColor: 'var(--border)' }}>
+                        <div className="mb-5">
+                            <h2 className="text-xl font-extrabold" style={{ color: 'var(--text-main)' }}>
+                                Your Activity
+                            </h2>
+                            <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-muted)' }}>
+                                Manage your upcoming and past sessions.
+                            </p>
                         </div>
                         <RegistrationTabs
                             registrations={Object.values(registrations)}
                             onRefresh={fetchDashboardData}
                         />
                     </section>
+
                 </main>
             </div>
         </div>
