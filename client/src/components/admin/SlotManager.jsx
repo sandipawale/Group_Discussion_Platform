@@ -114,10 +114,15 @@ export default function SlotManager() {
 
         setLoading(true);
         try {
+            const payload = {
+                ...formData,
+                startTime: new Date(formData.startTime).toISOString(),
+                endTime: new Date(formData.endTime).toISOString(),
+            };
             if (editingSlot) {
-                await API.put(`/slots/${editingSlot._id}`, formData);
+                await API.put(`/slots/${editingSlot._id}`, payload);
             } else {
-                await API.post('/slots', formData);
+                await API.post('/slots', payload);
             }
             setShowModal(false);
             fetchSlots();
