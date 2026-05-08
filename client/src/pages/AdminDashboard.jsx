@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Video, ShieldAlert, Activity, TrendingUp, BarChart3, AlertTriangle, Bell } from 'lucide-react';
+import { Users, Video, ShieldAlert, Activity, TrendingUp, BarChart3, AlertTriangle, Bell, RefreshCw } from 'lucide-react';
 import { io } from 'socket.io-client';
 import API from '../api/axios';
 import Sidebar from '../components/Sidebar';
@@ -119,8 +119,24 @@ export default function AdminDashboard() {
                     ) : (
                         <>
                             {/* Stats */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                                {stats.map((s) => <StatCard key={s.label} {...s} />)}
+                            <div>
+                                <div className="flex items-center justify-between mb-5">
+                                    <div>
+                                        <h2 className="text-xl font-extrabold" style={{ color: 'var(--text-main)' }}>Overview</h2>
+                                        <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-muted)' }}>Platform analytics and live activity.</p>
+                                    </div>
+                                    <button
+                                        onClick={fetchAnalytics}
+                                        className="btn btn-ghost flex items-center gap-2"
+                                    >
+                                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}
+                                            style={{ color: 'var(--primary)' }} />
+                                        <span className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>Refresh</span>
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                    {stats.map((s) => <StatCard key={s.label} {...s} />)}
+                                </div>
                             </div>
 
                             {/* Slot Manager */}
