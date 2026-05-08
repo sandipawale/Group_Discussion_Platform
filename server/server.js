@@ -9,6 +9,15 @@ const { setIO } = require('./utils/socketManager');
 
 require('dotenv').config();
 
+// ─── Fail fast if critical env vars are missing ────────────
+const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
+const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missing.length) {
+    process.stdout.write(`\n❌ STARTUP FAILED — missing required env vars: ${missing.join(', ')}\n`);
+    process.stdout.write('Set them in the Render dashboard under Environment.\n\n');
+    process.exit(1);
+}
+
 const authRoutes = require('./routes/auth');
 const slotRoutes = require('./routes/slots');
 const roomRoutes = require('./routes/rooms');
@@ -79,6 +88,6 @@ mongoose
         });
     })
     .catch((err) => {
-        console.error('❌ MongoDB connection error:', err.message);
+        process.stdout.write(`\n❌ MongoDB connection error: ${err.message}\n`);
         process.exit(1);
     });
